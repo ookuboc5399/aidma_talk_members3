@@ -1,7 +1,7 @@
-import { google, sheets_v4, drive_v3 } from "googleapis";
+import { google, sheets_v4, drive_v3, Auth } from "googleapis";
 
-function getAuth() {
-  return new (google.auth as any).GoogleAuth({
+function getAuth(): Auth.GoogleAuth {
+  return new google.auth.GoogleAuth({
     scopes: [
       "https://www.googleapis.com/auth/drive",
       "https://www.googleapis.com/auth/spreadsheets",
@@ -15,9 +15,9 @@ function quoteSheetForA1(title: string): string {
 }
 
 export async function createSpreadsheetFromTemplate(params: { templateFileId: string; title: string; firstSheetTitle: string; }): Promise<{ spreadsheetId: string }>{
-  const authClient = await getAuth().getClient();
-  const drive = google.drive({ version: "v3", auth: authClient as any }) as drive_v3.Drive;
-  const sheets = google.sheets({ version: "v4", auth: authClient as any }) as sheets_v4.Sheets;
+  const authClient = await getAuth().getClient() as Auth.OAuth2Client;
+  const drive = google.drive({ version: "v3", auth: authClient }) as drive_v3.Drive;
+  const sheets = google.sheets({ version: "v4", auth: authClient }) as sheets_v4.Sheets;
 
   const destinationFolderId = process.env.GOOGLE_DRIVE_DESTINATION_FOLDER_ID;
   const copyRes = await drive.files.copy({
@@ -44,8 +44,8 @@ export async function createSpreadsheetFromTemplate(params: { templateFileId: st
 }
 
 export async function upsertCells(params: { spreadsheetId: string; sheetTitle: string; values: { a1: string; value: string }[]; }): Promise<void> {
-  const authClient = await getAuth().getClient();
-  const sheets = google.sheets({ version: "v4", auth: authClient as any }) as sheets_v4.Sheets;
+  const authClient = await getAuth().getClient() as Auth.OAuth2Client;
+  const sheets = google.sheets({ version: "v4", auth: authClient }) as sheets_v4.Sheets;
 
   const data = params.values.map(v => ({ range: `${quoteSheetForA1(params.sheetTitle)}!${v.a1}`, values: [[v.value]] }));
   await sheets.spreadsheets.values.batchUpdate({
