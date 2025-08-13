@@ -1,0 +1,46 @@
+ookubo@ookubotadashikinoMacBook-Pro aidma-talk-members % curl -X POST -H "Content-Type: application/json" -d '{"id":"MB071084", "password":"aYSMBLax"}' https://api.mem-bers.jp/web-api/login
+{"token":"quBhAobrk3U7jvFjw4HefKRObvFTwsggR0abpZTNn8W6Yi6to8VC8Q3tl54PuC1MNe2wdjZlrLyxncxH"}%     
+
+
+
+SSE(Server-Sent Events)は「サーバ→クライアントの一方向ストリーム」をHTTPで常時張り続け、サーバからの更新をプッシュする仕組み。
+クライアントはEventSourceで接続、サーバはtext/event-streamで継続的にテキスト行を送信。
+しくみ
+接続は通常のHTTP GET。サーバはレスポンスを閉じず、イベントを都度追記して送る。
+メッセージはテキスト行で構成:
+基本: data: <文字列> を1行以上、最後に空行で確定
+任意: event: <イベント名>, id: <イベントID>
+クライアントは自動再接続。Last-Event-IDで再開制御も可能。
+SSEと他手段の比較
+長所: 実装が簡単・HTTPだけで動く・自動再接続・下り一方向で十分な用途に最適（通知、ログ、進捗）。
+短所: 双方向通信は不可（上りは別HTTPが必要）・ヘッダ送信不可（認証はCookie/クエリで）・プロキシ依存で挙動が変わることあり。
+WebSocket: 双方向・バイナリ・低レイテンシが必要ならWS。シンプルなサーバプッシュはSSEが省力。
+ロングポーリング: 互換性は高いがオーバーヘッド大。SSEの方が効率的。
+
+
+
+ 重要な観察と診断:
+
+
+   1. `copyRes.data`は正常:
+      コピー操作は成功し、新しいスプレッドシートが作成されています。
+   2. `ss.data`は正常:
+      コピーされたスプレッドシートに対するsheets.spreadsheets.get呼び出しも有効なデータ
+      を返しています。特に、ss.data.sheetsは少なくとも1つのシートを含む配列です。
+   3. エラー発生箇所: エラーはlib/googleSheets.ts:65のif 
+      (!firstSheetId)でスローされています。
+   4. 矛盾: ログを見るとss.data.sheetsが存在するにもかかわらず、firstSheetIdが偽値（null
+      、undefined、0、false、''のいずれか）になっていることがわかります。
+
+  原因の特定:
+
+
+  sheetIdは通常、数値（最初のシートの場合は0であることが多い）です。JavaScriptでは0は
+  偽値として扱われるため、if (!firstSheetId)という条件は、firstSheetIdが0の場合でもtr
+  ueと評価され、エラーがスローされてしまっています。
+
+
+
+
+
+  
