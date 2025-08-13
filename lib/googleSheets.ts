@@ -1,12 +1,23 @@
 import { google, sheets_v4, drive_v3, Auth } from "googleapis";
 
 function getAuth(): Auth.GoogleAuth {
-  return new google.auth.GoogleAuth({
-    scopes: [
-      "https://www.googleapis.com/auth/drive",
-      "https://www.googleapis.com/auth/spreadsheets",
-    ],
-  });
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    return new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON),
+      scopes: [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/spreadsheets",
+      ],
+    });
+  } else {
+    // ローカル開発環境など、GOOGLE_APPLICATION_CREDENTIALS_JSON が設定されていない場合
+    return new google.auth.GoogleAuth({
+      scopes: [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/spreadsheets",
+      ],
+    });
+  }
 }
 
 function quoteSheetForA1(title: string): string {
