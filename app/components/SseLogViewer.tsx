@@ -22,8 +22,8 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
   const [intervalMs, setIntervalMs] = useState<number>(defaultIntervalMs);
   const [connected, setConnected] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [generateOnConnect, setGenerateOnConnect] = useState(true);
-  const [exportOnGenerate, setExportOnGenerate] = useState(true);
+  const [generateOnConnect, setGenerateOnConnect] = useState(false);
+  const [exportOnGenerate, setExportOnGenerate] = useState(false);
 
   const [lastMessageId, setLastMessageId] = useState<number | null>(null);
   const [messages, setMessages] = useState<MembersMessage[]>([]);
