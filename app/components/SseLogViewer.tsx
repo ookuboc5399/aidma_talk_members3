@@ -23,6 +23,7 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
   const [connected, setConnected] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [generateOnConnect, setGenerateOnConnect] = useState(false);
+  const [debug, setDebug] = useState(false);
   const [exportOnGenerate, setExportOnGenerate] = useState(false);
 
   const [lastMessageId, setLastMessageId] = useState<number | null>(null);
@@ -42,10 +43,10 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
       useReasoning: "1",
       generateOnConnect: generateOnConnect ? "1" : "0",
       exportOnGenerate: exportOnGenerate ? "1" : "0",
+      debug: debug ? "1" : "0",
     });
-    if (lastMessageId) params.set("lastId", String(lastMessageId));
     return `/api/members/messages/stream?${params.toString()}`;
-  }, [intervalMs, roomId, lastMessageId, generateOnConnect, exportOnGenerate]);
+  }, [intervalMs, roomId, generateOnConnect, exportOnGenerate, debug]);
 
   const appendLog = (line: string) => {
     setLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${line}`].slice(-500));
@@ -67,6 +68,11 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
         const data = JSON.parse(evt.data) as StatusEvent;
         if (data.type === "hello") return;
         if (data.type === "ping") return;
+        if (data.type === "debug") {
+          // サーバ側で既に debug=1 の時のみ送られてくるが、念のためクライアントでも表示スイッチ
+          if (debug) appendLog(`[DEBUG] ${data.message}`);
+          return;
+        }
         if (data.type === "error") {
           appendLog("エラーが発生しました。");
           alert(data.message || "エラー");
@@ -104,7 +110,7 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
       es.close();
       esRef.current = null;
     };
-  }, [connected, streamUrl]);
+  }, [connected, streamUrl, debug]);
 
   useEffect(() => {
     if (!autoScroll) return;
@@ -121,6 +127,10 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
   };
 
   const handleManualExport = async () => {
+    if (!connected) { // Connect状態をチェック
+      alert("Connectしていません。");
+      return;
+    }
     if (!scriptOutput) { return alert("先にスクリプトを生成してください"); }
     setManualExporting(true);
     try {
@@ -161,6 +171,9 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
         </label>
         <label className="inline-flex items-center gap-2 text-sm">
           <input type="checkbox" checked={exportOnGenerate} onChange={(e) => setExportOnGenerate(e.target.checked)} /> 生成後にシート作成
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={debug} onChange={(e) => setDebug(e.target.checked)} /> Debug表示
         </label>
         <div className="ml-auto flex gap-2">
           {!connected ? (
