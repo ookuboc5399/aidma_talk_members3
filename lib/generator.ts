@@ -47,6 +47,7 @@ export interface GenerateOptions {
   force?: 0 | 1;
   useReasoning?: boolean;
   modelOverride?: string;
+  targetMessageId?: number; // 特定のメッセージIDをターゲットにする場合
 }
 
 export interface GenerateResult {
@@ -58,7 +59,32 @@ export interface GenerateResult {
 
 export async function generateSalesScriptFromContext(opts: GenerateOptions): Promise<GenerateResult> {
   const messages = await getRoomMessages(opts.roomId, { force: opts.force ?? 1 });
-  const recent = messages.slice(-50).map((m) => `- ${m.account?.name ?? ""}: ${m.body.replace(/<[^>]+>/g, " ")}`).join("\n");
+  
+  // 特定のメッセージIDがターゲットの場合、そのメッセージのみを使用
+  let targetMessages = messages;
+  let contextInfo = "";
+  
+  if (opts.targetMessageId) {
+    const targetMessage = messages.find(m => m.message_id === opts.targetMessageId);
+    if (targetMessage) {
+      // ターゲットメッセージのみを使用
+      targetMessages = [targetMessage];
+      contextInfo = `特定メッセージ(ID: ${opts.targetMessageId})`;
+    } else {
+      throw new Error(`Target message ID ${opts.targetMessageId} not found`);
+    }
+  } else {
+    // 従来通り最新50件を使用
+    targetMessages = messages.slice(-50);
+    contextInfo = `最新${targetMessages.length}件のメッセージ`;
+  }
+  
+  const recent = targetMessages.map((m) => `- ${m.account?.name ?? ""}: ${m.body.replace(/<[^>]+>/g, " ")}`).join("\n");
+  
+  // メッセージID情報を取得
+  const messageIds = targetMessages.map(m => m.message_id);
+  const latestMessageId = targetMessages.length > 0 ? targetMessages[targetMessages.length - 1].message_id : null;
+  const messageCount = targetMessages.length;
 
   // PDFは使用しない
   const plotsPdf = "";
@@ -79,16 +105,32 @@ export async function generateSalesScriptFromContext(opts: GenerateOptions): Pro
 
   const model = opts.modelOverride || (process.env.OPENAI_MODEL || (opts.useReasoning ? "o4-mini" : "gpt-4o-mini"));
 
+  // API呼び出し回数をカウント（簡易的にタイムスタンプで識別）
+  const callId = Date.now();
+  console.log(`[OPENAI-${callId}] 📤 ChatGPT API 呼び出し開始`);
+  console.log(`[OPENAI-${callId}] Room: ${opts.roomId}, Model: ${model}, Mode: ${opts.useReasoning ? "reasoning" : "chat"}`);
+  console.log(`[OPENAI-${callId}] コンテキスト: ${contextInfo}`);
+  console.log(`[OPENAI-${callId}] メッセージ数: ${messageCount}, 最新ID: ${latestMessageId}`);
+  console.log(`[OPENAI-${callId}] 含まれるメッセージID: [${messageIds.join(', ')}]`);
+  console.log(`[OPENAI-${callId}] プロンプト文字数: ${instruction.length}`);
+  console.log(`[OPENAI-${callId}] プロンプト冒頭: ${instruction.substring(0, 200)}...`);
+
   if (opts.useReasoning) {
+    console.log(`[OPENAI-${callId}] 送信中... (reasoning mode)`);
     const resp = await openai.responses.create({
       model,
       reasoning: { effort: "medium" },
       instructions: "営業トーク台本の体裁を厳格に守ってください。",
       input: instruction,
     });
-    return { content: resp.output_text || "", model, mode: "reasoning", messages };
+    const content = resp.output_text || "";
+    console.log(`[OPENAI-${callId}] 📥 レスポンス受信完了`);
+    console.log(`[OPENAI-${callId}] 返却文字数: ${content.length}`);
+    console.log(`[OPENAI-${callId}] 返却内容冒頭: ${content.substring(0, 300)}...`);
+    return { content, model, mode: "reasoning", messages: targetMessages };
   }
 
+  console.log(`[OPENAI-${callId}] 送信中... (chat mode)`);
   const completion = await openai.chat.completions.create({
     model,
     messages: [
@@ -98,5 +140,9 @@ export async function generateSalesScriptFromContext(opts: GenerateOptions): Pro
     temperature: 0.7,
   });
   const content = completion.choices?.[0]?.message?.content ?? "";
-  return { content, model, mode: "chat", messages };
+  console.log(`[OPENAI-${callId}] 📥 レスポンス受信完了`);
+  console.log(`[OPENAI-${callId}] 返却文字数: ${content.length}`);
+  console.log(`[OPENAI-${callId}] 返却内容冒頭: ${content.substring(0, 300)}...`);
+  console.log(`[OPENAI-${callId}] Usage: prompt_tokens=${completion.usage?.prompt_tokens}, completion_tokens=${completion.usage?.completion_tokens}`);
+  return { content, model, mode: "chat", messages: targetMessages };
 } 

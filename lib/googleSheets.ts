@@ -31,11 +31,17 @@ export async function createSpreadsheetFromTemplate(params: { templateFileId: st
   const sheets = google.sheets({ version: "v4", auth: authClient }) as sheets_v4.Sheets;
 
   const destinationFolderId = process.env.GOOGLE_DRIVE_DESTINATION_FOLDER_ID;
+  console.log("[DEBUG] Template file ID:", params.templateFileId);
+  console.log("[DEBUG] Destination folder ID:", destinationFolderId);
+  console.log("[DEBUG] Copy request parents:", destinationFolderId ? [destinationFolderId] : undefined);
+  
   const copyRes = await drive.files.copy({
     fileId: params.templateFileId,
     supportsAllDrives: true,
     requestBody: { name: params.title, parents: destinationFolderId ? [destinationFolderId] : undefined },
   });
+  
+  console.log("[DEBUG] Copy response:", copyRes.data.id, "parents:", copyRes.data.parents);
   const newFileId = copyRes.data.id;
   if (!newFileId) throw new Error("テンプレートの複製に失敗しました（新ファイルIDなし）");
 

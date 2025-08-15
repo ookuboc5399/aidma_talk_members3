@@ -8,6 +8,13 @@ export const runtime = "nodejs";
 // Lock to prevent multiple concurrent generations for the same room
 const roomLocks = new Set<number>();
 
+// Track last generation time for each room (5 minute minimum interval)
+const lastGenerationTime = new Map<number, number>();
+const MIN_GENERATION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Queue for pending messages that need to wait for the interval
+const pendingMessages = new Map<number, { messageId: number; scheduledTime: number }[]>();
+
 function toSseData(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
@@ -49,11 +56,29 @@ export async function GET(request: Request) {
         safeSend({ type: "debug", message });
       };
 
-      const runExport = async (generatedScript: string, reuseMessages?: MembersMessage[]) => {
-        if (!exportOnGenerate) return;
+      const runExport = async (generatedScript: string, reuseMessages?: MembersMessage[], wasGenerationSuccessful: boolean = false) => {
+        // 厳格な条件チェック
+        if (!exportOnGenerate) {
+          sendDebug("Export skipped: exportOnGenerate is false");
+          return;
+        }
+        if (!wasGenerationSuccessful) {
+          sendDebug("Export skipped: generation was not successful");
+          return;
+        }
+        if (!generatedScript || generatedScript.trim().length === 0) {
+          sendDebug("Export skipped: generated script is empty");
+          return;
+        }
+        
         const templateFileId = process.env.SHEETS_TEMPLATE_FILE_ID || "";
-        if (!templateFileId) return;
+        if (!templateFileId) {
+          sendDebug("Export skipped: SHEETS_TEMPLATE_FILE_ID not configured");
+          return;
+        }
+        
         try {
+          sendDebug("Starting spreadsheet export for generated script");
           safeSend({ type: "status", phase: "export_start" });
           const { basicInfoTitle, listInfoTitle } = extractTitles(reuseMessages ?? []);
           const { spreadsheetId } = await createSpreadsheetFromTemplate({ templateFileId, title: basicInfoTitle, firstSheetTitle: listInfoTitle });
@@ -75,15 +100,48 @@ export async function GET(request: Request) {
             { a1: "C17", value: plot2 }, // Plot 2 to C17
             { a1: "C19", value: qa },    // Q&A to C19
           ]});
+          sendDebug(`Spreadsheet export completed successfully: ${spreadsheetId}`);
           safeSend({ type: "status", phase: "export_done", spreadsheetId });
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);
+          sendDebug(`Spreadsheet export failed: ${message}`);
           safeSend({ type: "error", message });
         }
       };
 
-      const runGeneration = async (reuseMessages?: MembersMessage[]) => {
+      const runGeneration = async (reuseMessages?: MembersMessage[], triggeredByMessageId?: number) => {
         if (generating) return;
+        
+        // Check minimum interval (5 minutes)
+        const now = Date.now();
+        const lastTime = lastGenerationTime.get(roomId) || 0;
+        const timeSinceLastGeneration = now - lastTime;
+        
+        sendDebug(`Interval check - Room: ${roomId}, Last: ${new Date(lastTime).toLocaleTimeString()}, Now: ${new Date(now).toLocaleTimeString()}, Since: ${Math.floor(timeSinceLastGeneration/60000)}min`);
+        
+        if (timeSinceLastGeneration < MIN_GENERATION_INTERVAL_MS) {
+          const remainingMs = MIN_GENERATION_INTERVAL_MS - timeSinceLastGeneration;
+          const remainingMinutes = Math.ceil(remainingMs / 60000);
+          const scheduledTime = lastTime + MIN_GENERATION_INTERVAL_MS;
+          
+          // Add to pending queue if not already queued
+          if (triggeredByMessageId) {
+            const roomQueue = pendingMessages.get(roomId) || [];
+            const alreadyQueued = roomQueue.some(item => item.messageId === triggeredByMessageId);
+            
+            if (!alreadyQueued) {
+              roomQueue.push({ messageId: triggeredByMessageId, scheduledTime });
+              pendingMessages.set(roomId, roomQueue);
+              sendDebug(`Message ${triggeredByMessageId} queued for processing at ${new Date(scheduledTime).toLocaleTimeString()}`);
+            } else {
+              sendDebug(`Message ${triggeredByMessageId} already in queue`);
+            }
+          }
+          
+          sendDebug(`Generation skipped: minimum 5-minute interval not met. Wait ${remainingMinutes} more minutes.`);
+          return;
+        }
+        
         // Acquire lock for the room
         if (roomLocks.has(roomId)) {
           sendDebug(`Generation for room ${roomId} is already in progress. Skipping.`);
@@ -93,16 +151,62 @@ export async function GET(request: Request) {
         try {
           generating = true;
           roomLocks.add(roomId);
+          const triggerInfo = triggeredByMessageId ? ` (triggered by message ID: ${triggeredByMessageId})` : "";
+          sendDebug(`Starting generation for room ${roomId}${triggerInfo}`);
           safeSend({ type: "status", phase: "generation_start" });
-          const result = await generateSalesScriptFromContext({ roomId, force: 1, useReasoning });
-          safeSend({ type: "status", phase: "generation_done", content: result.content, model: result.model, mode: result.mode });
-          await runExport(result.content, result.messages);
+          
+          const result = await generateSalesScriptFromContext({ 
+            roomId, 
+            force: 1, 
+            useReasoning, 
+            targetMessageId: triggeredByMessageId 
+          });
+          
+          // Check if generation was successful
+          const generationSuccessful = result && result.content && result.content.trim().length > 0;
+          
+          if (generationSuccessful) {
+            sendDebug(`Generation completed successfully. Content length: ${result.content.length}`);
+            safeSend({ type: "status", phase: "generation_done", content: result.content, model: result.model, mode: result.mode });
+            
+            // Update last generation time with current timestamp
+            const completionTime = Date.now();
+            lastGenerationTime.set(roomId, completionTime);
+            sendDebug(`Updated last generation time for room ${roomId}: ${new Date(completionTime).toLocaleTimeString()}`);
+            
+            // Only export if generation was successful
+            await runExport(result.content, result.messages, true);
+          } else {
+            sendDebug("Generation failed: empty or invalid content returned");
+            safeSend({ type: "error", message: "Generation returned empty content" });
+          }
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);
+          sendDebug(`Generation failed with error: ${message}`);
           safeSend({ type: "error", message });
+          // Do not call runExport on error
         } finally {
           generating = false;
           roomLocks.delete(roomId); // Release lock
+        }
+      };
+
+      const checkPendingQueue = async (allMessages: MembersMessage[]) => {
+        const roomQueue = pendingMessages.get(roomId) || [];
+        const now = Date.now();
+        const readyMessages = roomQueue.filter(item => now >= item.scheduledTime);
+        
+        if (readyMessages.length > 0) {
+          sendDebug(`Found ${readyMessages.length} messages ready for processing from queue`);
+          
+          for (const item of readyMessages) {
+            sendDebug(`Processing queued message ${item.messageId} (scheduled for ${new Date(item.scheduledTime).toLocaleTimeString()})`);
+            await runGeneration(allMessages, item.messageId);
+            
+            // Remove from queue after processing
+            const updatedQueue = roomQueue.filter(q => q.messageId !== item.messageId);
+            pendingMessages.set(roomId, updatedQueue);
+          }
         }
       };
 
@@ -116,23 +220,40 @@ export async function GET(request: Request) {
             const latestId = ms[ms.length - 1].message_id;
             sendDebug(`Fetched messages. Latest ID: ${latestId}`);
 
-            // On the first poll, if generateOnConnect is true, run generation.
-            if (isFirstPoll && generateOnConnect) {
-              sendDebug("First poll with generateOnConnect=true. Running generation.");
-              safeSend({ type: "status", phase: "poll_ok" });
-              await runGeneration(ms);
+            // On the first poll
+            if (isFirstPoll) {
+              if (generateOnConnect) {
+                sendDebug("First poll with generateOnConnect=true. Running generation.");
+                safeSend({ type: "status", phase: "poll_ok" });
+                await runGeneration(ms);
+              } else {
+                sendDebug("First poll with generateOnConnect=false. Marking all existing messages as processed.");
+              }
+              // Mark all existing messages as processed
               lastSeenId = latestId;
             } else if (latestId > lastSeenId) {
-              sendDebug(`New message found (latestId: ${latestId} > lastSeenId: ${lastSeenId}). Running generation.`);
-              // On subsequent polls, run generation only if there are new messages.
-              lastSeenId = latestId;
-              safeSend({ type: "status", phase: "poll_ok" });
-              await runGeneration(ms);
+              // Find all unprocessed messages (only for subsequent polls)
+              const unprocessedMessages = ms.filter(m => m.message_id > lastSeenId);
+              sendDebug(`Found ${unprocessedMessages.length} unprocessed messages (IDs: ${unprocessedMessages.map(m => m.message_id).join(', ')})`);
+              
+              // Process each unprocessed message
+              for (const msg of unprocessedMessages) {
+                sendDebug(`Processing message ID: ${msg.message_id} - Content preview: ${msg.body.substring(0, 100).replace(/<[^>]+>/g, ' ')}`);
+                safeSend({ type: "status", phase: "poll_ok" });
+                await runGeneration(ms, msg.message_id); // Use all messages for context, but triggered by this specific message
+                lastSeenId = msg.message_id; // Update after each successful generation
+                sendDebug(`Updated lastSeenId to: ${lastSeenId}`);
+              }
             } else {
               sendDebug(`No new messages found (latestId: ${latestId} <= lastSeenId: ${lastSeenId}). Skipping generation.`);
             }
+            
+            // Always check pending queue regardless of new messages
+            await checkPendingQueue(ms);
           } else {
             sendDebug("No messages returned from API.");
+            // Still check pending queue even if no messages
+            await checkPendingQueue([]);
           }
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);

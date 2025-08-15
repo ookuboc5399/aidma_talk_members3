@@ -32,32 +32,50 @@ export function extractSectionBody(messages: MembersMessage[], sectionHeader: st
 }
 
 export function splitScriptBySections(text: string): { plot1: string; plot2: string; qa: string } {
+  console.log("[SPLIT-DEBUG] Input text length:", text.length);
+  console.log("[SPLIT-DEBUG] Input text preview:", text.substring(0, 500));
+  
   const sections = {
     plot1: "",
     plot2: "",
     qa: "",
   };
 
-  // Define regexes tailored to the actual document format
-  // Start detection focuses on the key phrases (avoid generic "1)"/"2)" which collide with other headers)
-  const plot1StartRegex = /プロット\s*①/;
-  const plot2StartRegex = /プロット\s*②/;
-  const qaStartRegex = /想定Q&A/;
+  // Try multiple patterns for more flexible matching
+  const plot1Patterns = [
+    /プロット\s*①[（(][^）)]*[）)]/,
+    /プロット\s*①/,
+    /＜プロット①[^＞]*＞/
+  ];
+  
+  const plot2Patterns = [
+    /プロット\s*②[（(][^）)]*[）)]/,
+    /プロット\s*②/,
+    /＜プロット②[^＞]*＞/
+  ];
+  
+  const qaPatterns = [
+    /(?:2\s*\)\s*)?想定Q&A/,
+    /想定質問/,
+    /Q&A/
+  ];
 
-  // Header removal regexes remove the whole header line such as "（プロット①／受付突破）" or "2) 想定Q&A（...）"
-  const plot1HeaderRemoveRegex = /[（(]?\s*プロット\s*①[^\n]*[）)]?\s*/;
-  const plot2HeaderRemoveRegex = /[（(]?\s*プロット\s*②[^\n]*[）)]?\s*/;
-  const qaHeaderRemoveRegex = /(?:^|\n).*想定Q&A[^\n]*\n?/;
-
-  // Find the start index of each section
-  const findStartIndex = (regex: RegExp) => {
-    const match = text.match(regex);
-    return match && typeof match.index !== 'undefined' ? match.index : -1;
+  // Find the best match for each section
+  const findBestMatch = (patterns: RegExp[]) => {
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && typeof match.index !== 'undefined') {
+        return { index: match.index, pattern, match: match[0] };
+      }
+    }
+    return { index: -1, pattern: null, match: "" };
   };
 
-  const plot1StartIndex = findStartIndex(plot1StartRegex);
-  const plot2StartIndex = findStartIndex(plot2StartRegex);
-  const qaStartIndex = findStartIndex(qaStartRegex);
+  const plot1Match = findBestMatch(plot1Patterns);
+  const plot2Match = findBestMatch(plot2Patterns);
+  const qaMatch = findBestMatch(qaPatterns);
+
+  console.log("[SPLIT-DEBUG] Matches - Plot1:", plot1Match.index, plot1Match.match, "Plot2:", plot2Match.index, plot2Match.match, "QA:", qaMatch.index, qaMatch.match);
 
   // Helper to extract text between two indices
   const getTextBetween = (start: number, end: number) => {
@@ -67,14 +85,27 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
   };
 
   // Extract each section's full text (header + content)
-  const plot1Full = getTextBetween(plot1StartIndex, plot2StartIndex);
-  const plot2Full = getTextBetween(plot2StartIndex, qaStartIndex);
-  const qaFull = getTextBetween(qaStartIndex, -1); // -1 means to the end of the string
+  const plot1Full = getTextBetween(plot1Match.index, plot2Match.index);
+  const plot2Full = getTextBetween(plot2Match.index, qaMatch.index);
+  const qaFull = getTextBetween(qaMatch.index, -1);
 
-  // Remove headers to get only the content
-  if (plot1Full) sections.plot1 = plot1Full.replace(plot1HeaderRemoveRegex, "").trim();
-  if (plot2Full) sections.plot2 = plot2Full.replace(plot2HeaderRemoveRegex, "").trim();
-  if (qaFull) sections.qa = qaFull.replace(qaHeaderRemoveRegex, "").trim();
+  console.log("[SPLIT-DEBUG] Raw sections - Plot1 length:", plot1Full.length, "Plot2 length:", plot2Full.length, "QA length:", qaFull.length);
+
+  // Remove headers more carefully
+  if (plot1Full && plot1Match.match) {
+    sections.plot1 = plot1Full.replace(plot1Match.match, "").replace(/^\s*\n/, "").trim();
+  }
+  if (plot2Full && plot2Match.match) {
+    sections.plot2 = plot2Full.replace(plot2Match.match, "").replace(/^\s*\n/, "").trim();
+  }
+  if (qaFull && qaMatch.match) {
+    sections.qa = qaFull.replace(qaMatch.match, "").replace(/^\s*\n/, "").trim();
+  }
+
+  console.log("[SPLIT-DEBUG] Final sections - Plot1:", sections.plot1.length, "Plot2:", sections.plot2.length, "QA:", sections.qa.length);
+  console.log("[SPLIT-DEBUG] Plot1 preview:", sections.plot1.substring(0, 200));
+  console.log("[SPLIT-DEBUG] Plot2 preview:", sections.plot2.substring(0, 200));
+  console.log("[SPLIT-DEBUG] QA preview:", sections.qa.substring(0, 200));
 
   return sections;
 }

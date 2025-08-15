@@ -22,7 +22,7 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
   const [intervalMs, setIntervalMs] = useState<number>(defaultIntervalMs);
   const [connected, setConnected] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [generateOnConnect, setGenerateOnConnect] = useState(false);
+
   const [debug, setDebug] = useState(false);
   const [exportOnGenerate, setExportOnGenerate] = useState(false);
 
@@ -41,12 +41,12 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
       intervalMs: String(intervalMs),
       roomId: String(roomId),
       useReasoning: "1",
-      generateOnConnect: generateOnConnect ? "1" : "0",
+      generateOnConnect: "0", // Always false now
       exportOnGenerate: exportOnGenerate ? "1" : "0",
       debug: debug ? "1" : "0",
     });
     return `/api/members/messages/stream?${params.toString()}`;
-  }, [intervalMs, roomId, generateOnConnect, exportOnGenerate, debug]);
+  }, [intervalMs, roomId, exportOnGenerate, debug]);
 
   const appendLog = (line: string) => {
     setLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${line}`].slice(-500));
@@ -165,9 +165,6 @@ export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs
         </div>
         <label className="inline-flex items-center gap-2 text-sm">
           <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} /> Auto scroll
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={generateOnConnect} onChange={(e) => setGenerateOnConnect(e.target.checked)} /> Connect直後に生成
         </label>
         <label className="inline-flex items-center gap-2 text-sm">
           <input type="checkbox" checked={exportOnGenerate} onChange={(e) => setExportOnGenerate(e.target.checked)} /> 生成後にシート作成
