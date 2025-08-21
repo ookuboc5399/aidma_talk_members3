@@ -80,6 +80,9 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
   ];
   
   const qaPatterns = [
+    /プロット\s*⑥[（(][^）)]*[）)]/,
+    /プロット\s*⑥想定Q&A/,
+    /プロット\s*⑥/,
     /(?:6\s*\)\s*)?想定Q&A/,
     /(?:2\s*\)\s*)?想定Q&A/,
     /想定質問/,
@@ -153,7 +156,12 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
     sections.plot4 = plot4Full.replace(plot4Match.match, "").replace(/^\s*\n/, "").trim();
   }
   if (plot5Full && plot5Match.match) {
-    sections.plot5 = plot5Full.replace(plot5Match.match, "").replace(/^\s*\n/, "").trim();
+    let plot5Content = plot5Full.replace(plot5Match.match, "").replace(/^\s*\n/, "").trim();
+    
+    // プロット⑤の最後にある「プロット⑥」の単語を除去（不完全なヘッダーの除去）
+    plot5Content = plot5Content.replace(/\n?\s*プロット\s*⑥\s*$/, '').trim();
+    
+    sections.plot5 = plot5Content;
   }
   if (qaFull && qaMatch.match) {
     sections.qa = qaFull.replace(qaMatch.match, "").replace(/^\s*\n/, "").trim();
@@ -164,7 +172,8 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
   console.log("[SPLIT-DEBUG] Plot2 preview:", sections.plot2.substring(0, 200));
   console.log("[SPLIT-DEBUG] Plot3 preview:", sections.plot3.substring(0, 200));
   console.log("[SPLIT-DEBUG] Plot4 preview:", sections.plot4.substring(0, 200));
-  console.log("[SPLIT-DEBUG] Plot5 preview:", sections.plot5.substring(0, 200));
+  console.log("[SPLIT-DEBUG] Plot5 preview:", sections.plot5.substring(0, 300));
+  console.log("[SPLIT-DEBUG] Plot5 ending:", sections.plot5.substring(Math.max(0, sections.plot5.length - 100)));
   console.log("[SPLIT-DEBUG] QA preview:", sections.qa.substring(0, 200));
 
   return sections;
@@ -172,8 +181,86 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
 
 export function extractTitles(messages: MembersMessage[]): { basicInfoTitle: string; listInfoTitle: string } {
   const basicBody = extractSectionBody(messages, "■基本情報");
-  const listBody = extractSectionBody(messages, "■リスト情報");
+  const listInfo = extractListInfo(messages);
   const basicInfoTitle = basicBody.trim().split('\n')[0] || "無題";
-  const listInfoTitle = listBody.trim().split('\n')[0] || "default";
+  
+  // 抽出条件をシート名に使用（後方互換性も考慮）
+  let listInfoTitle = listInfo.extractionCondition || extractSectionBody(messages, "■リスト情報").trim().split('\n')[0] || "default";
+  
+  // HTMLタグ（<br>等）を除去
+  listInfoTitle = listInfoTitle.replace(/<[^>]*>/g, '').trim();
+  
   return { basicInfoTitle, listInfoTitle };
+}
+
+export interface ListInfo {
+  callDepartment: string;  // 呼び出し部署
+  area: string;           // エリア
+  extractionCondition: string; // 抽出条件
+}
+
+export function extractListInfo(messages: any[]): ListInfo {
+  let callDepartment = "";
+  let area = "";
+  let extractionCondition = "";
+
+  // 最新のメッセージから順に検索
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const body = messages[i].body || "";
+    
+    // 新形式：■呼び出し部署セクションを探す（優先）
+    const callDeptNewMatch = body.match(/■呼び出し部署\s*([^\n■]+)/);
+    if (callDeptNewMatch) {
+      callDepartment = callDeptNewMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+    }
+    
+    // ■リスト情報セクションを探す
+    const listInfoMatch = body.match(/■リスト情報\s*([\s\S]*?)(?=■|$)/);
+    if (listInfoMatch) {
+      const listContent = listInfoMatch[1];
+      
+      // 旧形式：■リスト情報内の呼び出し部署を抽出（新形式がない場合のみ）
+      if (!callDepartment) {
+        const callDeptMatch = listContent.match(/呼び出し部署：\s*([^\n]*)/);
+        if (callDeptMatch) {
+          callDepartment = callDeptMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+        }
+      }
+      
+      // エリアを抽出
+      const areaMatch = listContent.match(/エリア：\s*([^\n]*)/);
+      if (areaMatch) {
+        area = areaMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+      }
+      
+      // 抽出条件を抽出
+      const extractionMatch = listContent.match(/抽出条件：\s*([^\n]*)/);
+      if (extractionMatch) {
+        extractionCondition = extractionMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+      }
+      
+      // 見つかった場合はループを抜ける
+      if (callDepartment || area || extractionCondition) {
+        break;
+      }
+    }
+  }
+
+  // 旧形式（単純なテキスト）への後方互換性
+  if (!callDepartment && !area && !extractionCondition) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const body = messages[i].body || "";
+      const oldFormatMatch = body.match(/■リスト情報\s*([^\n■]+)/);
+      if (oldFormatMatch) {
+        extractionCondition = oldFormatMatch[1].trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    callDepartment,
+    area,
+    extractionCondition
+  };
 }

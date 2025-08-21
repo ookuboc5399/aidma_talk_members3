@@ -2,6 +2,7 @@ import { getRoomMessages, type MembersMessage } from "@/lib/membersApi";
 import { generateSalesScriptFromContext } from "@/lib/generator";
 import { createSpreadsheetFromTemplate, upsertCells } from "@/lib/googleSheets";
 import { extractTitles, extractSectionBody, splitScriptBySections } from "@/lib/chatExtract";
+import { generateCompanyInfo, extractCompanyBasicInfo, type CompanyInfo } from "@/lib/companyExtract";
 
 export const runtime = "nodejs";
 
@@ -56,7 +57,7 @@ export async function GET(request: Request) {
         safeSend({ type: "debug", message });
       };
 
-      const runExport = async (generatedScript: string, reuseMessages?: MembersMessage[], wasGenerationSuccessful: boolean = false) => {
+      const runExport = async (generatedScript: string, reuseMessages?: MembersMessage[], wasGenerationSuccessful: boolean = false, companyInfo?: CompanyInfo | null) => {
         // 厳格な条件チェック
         if (!exportOnGenerate) {
           sendDebug("Export skipped: exportOnGenerate is false");
@@ -88,10 +89,20 @@ export async function GET(request: Request) {
           const productBody = extractSectionBody(reuseMessages ?? [], "■商材情報");
           const closingBody = extractSectionBody(reuseMessages ?? [], "■トーク情報(着地)");
           
-          // Split the generated script into sections
-          const { plot1, plot2, plot3, plot4, plot5, qa } = splitScriptBySections(generatedScript);
+          // Split the generated script into sections (only if script was generated)
+          let plot1 = "", plot2 = "", plot3 = "", plot4 = "", plot5 = "", qa = "";
+          if (generatedScript && generatedScript.trim()) {
+            const sections = splitScriptBySections(generatedScript);
+            plot1 = sections.plot1;
+            plot2 = sections.plot2;
+            plot3 = sections.plot3;
+            plot4 = sections.plot4;
+            plot5 = sections.plot5;
+            qa = sections.qa;
+          }
 
-          await upsertCells({ spreadsheetId, sheetTitle: listInfoTitle, values: [
+          // Prepare cell values array
+          const cellValues = [
             { a1: "C1", value: basicBody },
             { a1: "F3", value: urlBody },
             { a1: "C6", value: productBody },
@@ -102,7 +113,33 @@ export async function GET(request: Request) {
             { a1: "C21", value: plot4 }, // Plot 4 to C21
             { a1: "C23", value: plot5 }, // Plot 5 to C23
             { a1: "F17", value: qa },    // Q&A to F17 (プロット⑥)
-          ]});
+          ];
+
+          // Add company info if available
+          if (companyInfo) {
+            sendDebug(`Adding company info to spreadsheet - Business: ${companyInfo.businessContent.substring(0, 50)}...`);
+            
+            // Override C6 with business content if available
+            if (companyInfo.businessContent && companyInfo.businessContent !== "不明") {
+              const businessIndex = cellValues.findIndex(cell => cell.a1 === "C6");
+              if (businessIndex >= 0) {
+                cellValues[businessIndex].value = companyInfo.businessContent;
+              }
+            }
+            
+            // Add additional company info
+            if (companyInfo.representative && companyInfo.representative !== "不明") {
+              cellValues.push({ a1: "C2", value: companyInfo.representative }); // 代表者 → C2
+            }
+            if (companyInfo.employeeCount && companyInfo.employeeCount !== "不明") {
+              cellValues.push({ a1: "C4", value: companyInfo.employeeCount }); // 従業員数 → C4
+            }
+            if (companyInfo.headOfficeAddress && companyInfo.headOfficeAddress !== "不明") {
+              cellValues.push({ a1: "F2", value: companyInfo.headOfficeAddress }); // 本社住所 → F2
+            }
+          }
+
+          await upsertCells({ spreadsheetId, sheetTitle: listInfoTitle, values: cellValues });
           sendDebug(`Spreadsheet export completed successfully: ${spreadsheetId}`);
           safeSend({ type: "status", phase: "export_done", spreadsheetId });
         } catch (e: unknown) {
@@ -155,33 +192,65 @@ export async function GET(request: Request) {
           generating = true;
           roomLocks.add(roomId);
           const triggerInfo = triggeredByMessageId ? ` (triggered by message ID: ${triggeredByMessageId})` : "";
-          sendDebug(`Starting generation for room ${roomId}${triggerInfo}`);
+          sendDebug(`Starting parallel generation for room ${roomId}${triggerInfo}`);
           safeSend({ type: "status", phase: "generation_start" });
           
-          const result = await generateSalesScriptFromContext({ 
-            roomId, 
-            force: 1, 
-            useReasoning, 
-            targetMessageId: triggeredByMessageId 
-          });
+          // Extract company basic info for parallel processing
+          const messagesToUse = reuseMessages || await getRoomMessages(roomId, { force: 1 });
+          const { companyName, companyUrl } = extractCompanyBasicInfo(messagesToUse);
+          sendDebug(`Extracted company info - Name: ${companyName}, URL: ${companyUrl}`);
           
-          // Check if generation was successful
-          const generationSuccessful = result && result.content && result.content.trim().length > 0;
+          // Parallel execution of company info and sales script generation
+          const [companyInfoResult, salesScriptResult] = await Promise.allSettled([
+            generateCompanyInfo(companyName, companyUrl),
+            generateSalesScriptFromContext({ 
+              roomId, 
+              force: 1, 
+              useReasoning, 
+              targetMessageId: triggeredByMessageId 
+            })
+          ]);
           
-          if (generationSuccessful) {
-            sendDebug(`Generation completed successfully. Content length: ${result.content.length}`);
-            safeSend({ type: "status", phase: "generation_done", content: result.content, model: result.model, mode: result.mode });
-            
-            // Update last generation time with current timestamp
-            const completionTime = Date.now();
-            lastGenerationTime.set(roomId, completionTime);
-            sendDebug(`Updated last generation time for room ${roomId}: ${new Date(completionTime).toLocaleTimeString()}`);
-            
-            // Only export if generation was successful
-            await runExport(result.content, result.messages, true);
+          // Handle company info result
+          let companyInfo: CompanyInfo | null = null;
+          if (companyInfoResult.status === 'fulfilled') {
+            companyInfo = companyInfoResult.value;
+            sendDebug(`Company info generation completed successfully`);
           } else {
-            sendDebug("Generation failed: empty or invalid content returned");
-            safeSend({ type: "error", message: "Generation returned empty content" });
+            sendDebug(`Company info generation failed: ${companyInfoResult.reason}`);
+          }
+          
+          // Handle sales script result
+          let salesScriptGenerated = false;
+          if (salesScriptResult.status === 'fulfilled') {
+            const result = salesScriptResult.value;
+            const generationSuccessful = result && result.content && result.content.trim().length > 0;
+            
+            if (generationSuccessful) {
+              sendDebug(`Sales script generation completed successfully. Content length: ${result.content.length}`);
+              safeSend({ type: "status", phase: "generation_done", content: result.content, model: result.model, mode: result.mode });
+              
+              // Update last generation time with current timestamp
+              const completionTime = Date.now();
+              lastGenerationTime.set(roomId, completionTime);
+              sendDebug(`Updated last generation time for room ${roomId}: ${new Date(completionTime).toLocaleTimeString()}`);
+              
+              // Export with both company info and sales script
+              await runExport(result.content, result.messages, true, companyInfo);
+              salesScriptGenerated = true;
+            } else {
+              sendDebug("Sales script generation failed: empty or invalid content returned");
+              safeSend({ type: "error", message: "Sales script generation returned empty content" });
+            }
+          } else {
+            sendDebug(`Sales script generation failed: ${salesScriptResult.reason}`);
+            safeSend({ type: "error", message: "Sales script generation failed" });
+          }
+          
+          // If sales script failed but company info succeeded, still export company info
+          if (!salesScriptGenerated && companyInfo) {
+            sendDebug("Exporting company info only (sales script generation failed)");
+            await runExport("", messagesToUse, false, companyInfo);
           }
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);

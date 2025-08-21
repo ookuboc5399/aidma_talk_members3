@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSpreadsheetFromTemplate, upsertCells } from "@/lib/googleSheets";
 import { extractTitles, extractSectionBody, splitScriptBySections } from "@/lib/chatExtract";
+import { generateCompanyInfo, extractCompanyBasicInfo, type CompanyInfo } from "@/lib/companyExtract";
 import type { MembersMessage } from "@/lib/membersApi";
 
 export const runtime = "nodejs";

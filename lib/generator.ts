@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { getRoomMessages, type MembersMessage } from "@/lib/membersApi";
+import { extractListInfo } from "@/lib/chatExtract";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -90,19 +91,42 @@ export async function generateSalesScriptFromContext(opts: GenerateOptions): Pro
   const plotsPdf = "";
   const qaPdf = "";
 
-  // 指定されたCSVファイルを読み込む
-  const csvs = await readCsvTextsFromPublic("tesc_talk_script.csv");
-  // const csvs = await readCsvTextsFromPublic("qa.csv,tesc_talk_script.csv"); // qa.csvも含める場合
-
-  const csvSection = csvs.length
-    ? `\n【参考資料（CSV）】\n` + csvs.map((c) => `- ${c.filename}:\n${c.text}`).join("\n\n")
+  // 指定されたMarkdownファイルを読み込む
+  let talkScriptMd = await readTextFromPublic("tesc_talk_script.md");
+  
+  // チャットメッセージから呼び出し部署を抽出
+  const listInfo = extractListInfo(messages);
+  const callDepartment = listInfo.callDepartment;
+  
+  console.log(`[GENERATOR] 抽出されたリスト情報:`, {
+    callDepartment: callDepartment,
+    area: listInfo.area,
+    extractionCondition: listInfo.extractionCondition
+  });
+  
+  // 《△△》を呼び出し部署に置換（呼び出し部署が指定されている場合のみ）
+  if (talkScriptMd && callDepartment) {
+    talkScriptMd = talkScriptMd.replace(/《△△》/g, callDepartment);
+    console.log(`[GENERATOR] 呼び出し部署「${callDepartment}」を《△△》に適用しました`);
+  } else {
+    console.log(`[GENERATOR] 呼び出し部署が見つからないため置換をスキップしました`);
+  }
+  
+  const mdSection = talkScriptMd
+    ? `\n【参考資料（営業トークスクリプトガイド）】\n${talkScriptMd}\n`
     : "";
+  
+  // 以前のCSV読み込み（コメントアウト）
+  // const csvs = await readCsvTextsFromPublic("tesc_talk_script.csv");
+  // const csvSection = csvs.length
+  //   ? `\n【参考資料（CSV）】\n` + csvs.map((c) => `- ${c.filename}:\n${c.text}`).join("\n\n")
+  //   : "";
 
   // prompt_for_chatgpt.txtの内容を読み込んでベースプロンプトとする
   const basePrompt = await readTextFromPublic("prompt_for_chatgpt.txt");
 
-  // チャット履歴とCSVデータをプロンプトに含める
-  const instruction = `${basePrompt}\n\n【チャット抜粋】\n${recent}${csvSection}`;
+  // チャット履歴とMarkdownデータをプロンプトに含める
+  const instruction = `${basePrompt}\n\n【チャット抜粋】\n${recent}${mdSection}`;
 
   const model = opts.modelOverride || (process.env.OPENAI_MODEL || (opts.useReasoning ? "o4-mini" : "gpt-4o-mini"));
 
