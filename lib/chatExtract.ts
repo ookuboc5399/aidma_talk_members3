@@ -31,19 +31,23 @@ export function extractSectionBody(messages: MembersMessage[], sectionHeader: st
   return "";
 }
 
-export function splitScriptBySections(text: string): { plot1: string; plot2: string; qa: string } {
+export function splitScriptBySections(text: string): { plot1: string; plot2: string; plot3: string; plot4: string; plot5: string; qa: string } {
   console.log("[SPLIT-DEBUG] Input text length:", text.length);
   console.log("[SPLIT-DEBUG] Input text preview:", text.substring(0, 500));
   
   const sections = {
     plot1: "",
     plot2: "",
+    plot3: "",
+    plot4: "",
+    plot5: "",
     qa: "",
   };
 
   // Try multiple patterns for more flexible matching
   const plot1Patterns = [
     /プロット\s*①[（(][^）)]*[）)]/,
+    /プロット\s*①受付突破/,
     /プロット\s*①/,
     /＜プロット①[^＞]*＞/
   ];
@@ -54,7 +58,29 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
     /＜プロット②[^＞]*＞/
   ];
   
+  const plot3Patterns = [
+    /プロット\s*③[（(][^）)]*[）)]/,
+    /プロット\s*③クロージング/,
+    /プロット\s*③/,
+    /＜プロット③[^＞]*＞/
+  ];
+  
+  const plot4Patterns = [
+    /プロット\s*④[（(][^）)]*[）)]/,
+    /プロット\s*④情報確認/,
+    /プロット\s*④/,
+    /＜プロット④[^＞]*＞/
+  ];
+  
+  const plot5Patterns = [
+    /プロット\s*⑤[（(][^）)]*[）)]/,
+    /プロット\s*⑤ヒアリング/,
+    /プロット\s*⑤/,
+    /＜プロット⑤[^＞]*＞/
+  ];
+  
   const qaPatterns = [
+    /(?:6\s*\)\s*)?想定Q&A/,
     /(?:2\s*\)\s*)?想定Q&A/,
     /想定質問/,
     /Q&A/
@@ -73,9 +99,12 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
 
   const plot1Match = findBestMatch(plot1Patterns);
   const plot2Match = findBestMatch(plot2Patterns);
+  const plot3Match = findBestMatch(plot3Patterns);
+  const plot4Match = findBestMatch(plot4Patterns);
+  const plot5Match = findBestMatch(plot5Patterns);
   const qaMatch = findBestMatch(qaPatterns);
 
-  console.log("[SPLIT-DEBUG] Matches - Plot1:", plot1Match.index, plot1Match.match, "Plot2:", plot2Match.index, plot2Match.match, "QA:", qaMatch.index, qaMatch.match);
+  console.log("[SPLIT-DEBUG] Matches - Plot1:", plot1Match.index, plot1Match.match, "Plot2:", plot2Match.index, plot2Match.match, "Plot3:", plot3Match.index, plot3Match.match, "Plot4:", plot4Match.index, plot4Match.match, "Plot5:", plot5Match.index, plot5Match.match, "QA:", qaMatch.index, qaMatch.match);
 
   // Helper to extract text between two indices
   const getTextBetween = (start: number, end: number) => {
@@ -84,27 +113,58 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
     return text.substring(start, endPoint);
   };
 
+  // Sort matches by index to determine section boundaries
+  const allMatches = [
+    { name: "plot1", match: plot1Match },
+    { name: "plot2", match: plot2Match },
+    { name: "plot3", match: plot3Match },
+    { name: "plot4", match: plot4Match },
+    { name: "plot5", match: plot5Match },
+    { name: "qa", match: qaMatch }
+  ].filter(item => item.match.index !== -1).sort((a, b) => a.match.index - b.match.index);
+
   // Extract each section's full text (header + content)
-  const plot1Full = getTextBetween(plot1Match.index, plot2Match.index);
-  const plot2Full = getTextBetween(plot2Match.index, qaMatch.index);
+  const plot1Full = getTextBetween(plot1Match.index, getNextSectionIndex(plot1Match.index, allMatches));
+  const plot2Full = getTextBetween(plot2Match.index, getNextSectionIndex(plot2Match.index, allMatches));
+  const plot3Full = getTextBetween(plot3Match.index, getNextSectionIndex(plot3Match.index, allMatches));
+  const plot4Full = getTextBetween(plot4Match.index, getNextSectionIndex(plot4Match.index, allMatches));
+  const plot5Full = getTextBetween(plot5Match.index, getNextSectionIndex(plot5Match.index, allMatches));
   const qaFull = getTextBetween(qaMatch.index, -1);
 
-  console.log("[SPLIT-DEBUG] Raw sections - Plot1 length:", plot1Full.length, "Plot2 length:", plot2Full.length, "QA length:", qaFull.length);
+  // Helper function to get next section index
+  function getNextSectionIndex(currentIndex: number, matches: typeof allMatches): number {
+    const nextMatch = matches.find(m => m.match.index > currentIndex);
+    return nextMatch ? nextMatch.match.index : -1;
+  }
 
-  // Remove headers more carefully
+  console.log("[SPLIT-DEBUG] Raw sections - Plot1:", plot1Full.length, "Plot2:", plot2Full.length, "Plot3:", plot3Full.length, "Plot4:", plot4Full.length, "Plot5:", plot5Full.length, "QA:", qaFull.length);
+
+ 
   if (plot1Full && plot1Match.match) {
     sections.plot1 = plot1Full.replace(plot1Match.match, "").replace(/^\s*\n/, "").trim();
   }
   if (plot2Full && plot2Match.match) {
     sections.plot2 = plot2Full.replace(plot2Match.match, "").replace(/^\s*\n/, "").trim();
   }
+  if (plot3Full && plot3Match.match) {
+    sections.plot3 = plot3Full.replace(plot3Match.match, "").replace(/^\s*\n/, "").trim();
+  }
+  if (plot4Full && plot4Match.match) {
+    sections.plot4 = plot4Full.replace(plot4Match.match, "").replace(/^\s*\n/, "").trim();
+  }
+  if (plot5Full && plot5Match.match) {
+    sections.plot5 = plot5Full.replace(plot5Match.match, "").replace(/^\s*\n/, "").trim();
+  }
   if (qaFull && qaMatch.match) {
     sections.qa = qaFull.replace(qaMatch.match, "").replace(/^\s*\n/, "").trim();
   }
 
-  console.log("[SPLIT-DEBUG] Final sections - Plot1:", sections.plot1.length, "Plot2:", sections.plot2.length, "QA:", sections.qa.length);
+  console.log("[SPLIT-DEBUG] Final sections - Plot1:", sections.plot1.length, "Plot2:", sections.plot2.length, "Plot3:", sections.plot3.length, "Plot4:", sections.plot4.length, "Plot5:", sections.plot5.length, "QA:", sections.qa.length);
   console.log("[SPLIT-DEBUG] Plot1 preview:", sections.plot1.substring(0, 200));
   console.log("[SPLIT-DEBUG] Plot2 preview:", sections.plot2.substring(0, 200));
+  console.log("[SPLIT-DEBUG] Plot3 preview:", sections.plot3.substring(0, 200));
+  console.log("[SPLIT-DEBUG] Plot4 preview:", sections.plot4.substring(0, 200));
+  console.log("[SPLIT-DEBUG] Plot5 preview:", sections.plot5.substring(0, 200));
   console.log("[SPLIT-DEBUG] QA preview:", sections.qa.substring(0, 200));
 
   return sections;

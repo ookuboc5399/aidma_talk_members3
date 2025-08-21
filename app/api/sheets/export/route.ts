@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     
 
     // Split generated script into sections and write into designated cells
-    const { plot1, plot2, qa } = splitScriptBySections(generatedScript);
+    const { plot1, plot2, plot3, plot4, plot5, qa } = splitScriptBySections(generatedScript);
 
     await upsertCells({
       spreadsheetId,
@@ -43,7 +43,10 @@ export async function POST(request: Request) {
         { a1: "C13", value: closingBody },
         { a1: "C15", value: plot1 },
         { a1: "C17", value: plot2 },
-        { a1: "C19", value: qa },
+        { a1: "C19", value: plot3 },
+        { a1: "C21", value: plot4 },
+        { a1: "C23", value: plot5 },
+        { a1: "F17", value: qa },
       ],
     });
 

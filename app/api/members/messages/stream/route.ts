@@ -89,7 +89,7 @@ export async function GET(request: Request) {
           const closingBody = extractSectionBody(reuseMessages ?? [], "■トーク情報(着地)");
           
           // Split the generated script into sections
-          const { plot1, plot2, qa } = splitScriptBySections(generatedScript);
+          const { plot1, plot2, plot3, plot4, plot5, qa } = splitScriptBySections(generatedScript);
 
           await upsertCells({ spreadsheetId, sheetTitle: listInfoTitle, values: [
             { a1: "C1", value: basicBody },
@@ -98,7 +98,10 @@ export async function GET(request: Request) {
             { a1: "C13", value: closingBody },
             { a1: "C15", value: plot1 }, // Plot 1 to C15
             { a1: "C17", value: plot2 }, // Plot 2 to C17
-            { a1: "C19", value: qa },    // Q&A to C19
+            { a1: "C19", value: plot3 }, // Plot 3 to C19
+            { a1: "C21", value: plot4 }, // Plot 4 to C21
+            { a1: "C23", value: plot5 }, // Plot 5 to C23
+            { a1: "F17", value: qa },    // Q&A to F17 (プロット⑥)
           ]});
           sendDebug(`Spreadsheet export completed successfully: ${spreadsheetId}`);
           safeSend({ type: "status", phase: "export_done", spreadsheetId });
