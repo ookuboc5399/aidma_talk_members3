@@ -1,7 +1,7 @@
 import { getRoomMessages, type MembersMessage } from "@/lib/membersApi";
 import { generateSalesScriptFromContext } from "@/lib/generator";
-import { createSpreadsheetFromTemplate, upsertCells } from "@/lib/googleSheets";
-import { extractTitles, extractSectionBody, splitScriptBySections } from "@/lib/chatExtract";
+import { createSpreadsheetFromTemplate, upsertCells, executeGASForFormatting, registerSpreadsheetResult } from "@/lib/googleSheets";
+import { extractTitles, extractSectionBody, splitScriptBySections, extractSpreadsheetTitle } from "@/lib/chatExtract";
 import { generateCompanyInfo, extractCompanyBasicInfo, type CompanyInfo } from "@/lib/companyExtract";
 
 export const runtime = "nodejs";
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
         safeSend({ type: "debug", message });
       };
 
-      const runExport = async (generatedScript: string, reuseMessages?: MembersMessage[], wasGenerationSuccessful: boolean = false, companyInfo?: CompanyInfo | null) => {
+      const runExport = async (generatedScript: string, reuseMessages?: MembersMessage[], wasGenerationSuccessful: boolean = false, companyInfo?: CompanyInfo | null, triggeredByMessageId?: number) => {
         // 厳格な条件チェック
         if (!exportOnGenerate) {
           sendDebug("Export skipped: exportOnGenerate is false");
@@ -82,7 +82,8 @@ export async function GET(request: Request) {
           sendDebug("Starting spreadsheet export for generated script");
           safeSend({ type: "status", phase: "export_start" });
           const { basicInfoTitle, listInfoTitle } = extractTitles(reuseMessages ?? []);
-          const { spreadsheetId } = await createSpreadsheetFromTemplate({ templateFileId, title: basicInfoTitle, firstSheetTitle: listInfoTitle });
+          const spreadsheetTitle = extractSpreadsheetTitle(reuseMessages ?? []);
+          const { spreadsheetId } = await createSpreadsheetFromTemplate({ templateFileId, title: spreadsheetTitle, firstSheetTitle: listInfoTitle, setEditorPermission: true });
 
           const basicBody = extractSectionBody(reuseMessages ?? [], "■基本情報");
           const urlBody = extractSectionBody(reuseMessages ?? [], "■企業URL");
@@ -141,6 +142,56 @@ export async function GET(request: Request) {
 
           await upsertCells({ spreadsheetId, sheetTitle: listInfoTitle, values: cellValues });
           sendDebug(`Spreadsheet export completed successfully: ${spreadsheetId}`);
+          
+          // 結果を登録
+          try {
+            const companyName = basicBody || "不明";
+            const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+            const resultSheetId = process.env.RESULT_SHEET_ID || "1wqxo6ATm1rsKefu9C-dhLNFe8yRhuBeTMvojta_bRpE";
+            
+            // トリガーとなったメッセージのsend_timeを取得
+            let sendTime: string | undefined;
+            if (triggeredByMessageId && reuseMessages) {
+              const triggerMessage = reuseMessages.find(msg => msg.message_id === triggeredByMessageId);
+              if (triggerMessage && triggerMessage.send_time) {
+                sendTime = triggerMessage.send_time.toString();
+                sendDebug(`Using send_time from trigger message: ${sendTime}`);
+              }
+            }
+            
+            await registerSpreadsheetResult({
+              companyName,
+              spreadsheetUrl,
+              resultSheetId,
+              sendTime,
+            });
+            
+            sendDebug(`Result registered successfully for company: ${companyName}`);
+          } catch (error) {
+            console.error("Result registration failed:", error);
+            sendDebug("Result registration failed, but spreadsheet creation is complete");
+          }
+          
+          // データ挿入完了後にGASを2分後に実行
+          try {
+            sendDebug("Scheduling GAS execution for 2 minutes after data insertion");
+            // 非同期で2分後にGASを実行（ブロックしない）
+            setTimeout(async () => {
+              try {
+                await executeGASForFormatting(spreadsheetId, 0);
+                sendDebug("GAS formatting completed successfully (delayed execution)");
+              } catch (error) {
+                console.error("Delayed GAS formatting failed:", error);
+                sendDebug("Delayed GAS formatting failed");
+              }
+            }, 2 * 60 * 1000); // 2分 = 2 * 60 * 1000ms
+            
+            sendDebug("GAS execution scheduled for 2 minutes after data insertion");
+          } catch (error) {
+            console.error("GAS scheduling failed:", error);
+            sendDebug("GAS scheduling failed, but spreadsheet creation is complete");
+          }
+          
           safeSend({ type: "status", phase: "export_done", spreadsheetId });
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);
@@ -236,7 +287,7 @@ export async function GET(request: Request) {
               sendDebug(`Updated last generation time for room ${roomId}: ${new Date(completionTime).toLocaleTimeString()}`);
               
               // Export with both company info and sales script
-              await runExport(result.content, result.messages, true, companyInfo);
+              await runExport(result.content, result.messages, true, companyInfo, triggeredByMessageId);
               salesScriptGenerated = true;
             } else {
               sendDebug("Sales script generation failed: empty or invalid content returned");
@@ -250,7 +301,7 @@ export async function GET(request: Request) {
           // If sales script failed but company info succeeded, still export company info
           if (!salesScriptGenerated && companyInfo) {
             sendDebug("Exporting company info only (sales script generation failed)");
-            await runExport("", messagesToUse, false, companyInfo);
+            await runExport("", messagesToUse, false, companyInfo, triggeredByMessageId);
           }
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);

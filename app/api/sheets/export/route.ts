@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSpreadsheetFromTemplate, upsertCells } from "@/lib/googleSheets";
-import { extractTitles, extractSectionBody, splitScriptBySections } from "@/lib/chatExtract";
+import { createSpreadsheetFromTemplate, upsertCells, executeGASForFormatting } from "@/lib/googleSheets";
+import { extractTitles, extractSectionBody, splitScriptBySections, extractSpreadsheetTitle } from "@/lib/chatExtract";
 import { generateCompanyInfo, extractCompanyBasicInfo, type CompanyInfo } from "@/lib/companyExtract";
 import type { MembersMessage } from "@/lib/membersApi";
 
@@ -17,13 +17,34 @@ export async function POST(request: Request) {
     if (!generatedScript) return NextResponse.json({ ok: false, error: "generatedScript が空" }, { status: 400 });
 
     const { basicInfoTitle, listInfoTitle } = extractTitles(chatMessages);
+    const spreadsheetTitle = extractSpreadsheetTitle(chatMessages);
     
 
     const { spreadsheetId } = await createSpreadsheetFromTemplate({
       templateFileId,
-      title: basicInfoTitle,
+      title: spreadsheetTitle,
       firstSheetTitle: listInfoTitle,
+      setEditorPermission: true,
     });
+
+    // GASを2分後に実行してキーワードの文字色を変更
+    try {
+      console.log("Scheduling GAS execution for 2 minutes later");
+      // 非同期で2分後にGASを実行（ブロックしない）
+      setTimeout(async () => {
+        try {
+          await executeGASForFormatting(spreadsheetId, 0); // 遅延は既に設定済みなので0
+          console.log("GAS formatting completed successfully (delayed execution)");
+        } catch (error) {
+          console.error("Delayed GAS formatting failed:", error);
+        }
+      }, 2 * 60 * 1000); // 2分 = 2 * 60 * 1000ms
+      
+      console.log("GAS execution scheduled for 2 minutes later");
+    } catch (error) {
+      console.error("GAS scheduling failed:", error);
+      // GASの実行失敗はスプレッドシート作成の失敗とはしない
+    }
 
     const basicBody = extractSectionBody(chatMessages, "■基本情報");
     const urlBody = extractSectionBody(chatMessages, "■企業URL");
@@ -50,6 +71,25 @@ export async function POST(request: Request) {
         { a1: "F17", value: qa },
       ],
     });
+
+    // データ挿入完了後にGASを2分後に実行
+    try {
+      console.log("Scheduling GAS execution for 2 minutes after data insertion");
+      // 非同期で2分後にGASを実行（ブロックしない）
+      setTimeout(async () => {
+        try {
+          await executeGASForFormatting(spreadsheetId, 0);
+          console.log("GAS formatting completed successfully (delayed execution)");
+        } catch (error) {
+          console.error("Delayed GAS formatting failed:", error);
+        }
+      }, 2 * 60 * 1000); // 2分 = 2 * 60 * 1000ms
+      
+      console.log("GAS execution scheduled for 2 minutes after data insertion");
+    } catch (error) {
+      console.error("GAS scheduling failed:", error);
+      // GASの実行失敗はスプレッドシート作成の失敗とはしない
+    }
 
     return NextResponse.json({ ok: true, spreadsheetId });
   } catch (error: unknown) {

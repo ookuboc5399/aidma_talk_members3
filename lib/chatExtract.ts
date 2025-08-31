@@ -46,42 +46,43 @@ export function splitScriptBySections(text: string): { plot1: string; plot2: str
 
   // Try multiple patterns for more flexible matching
   const plot1Patterns = [
-    /プロット\s*①[（(][^）)]*[）)]/,
     /プロット\s*①受付突破/,
+    /プロット\s*①[（(][^）)]*[）)]/,
     /プロット\s*①/,
     /＜プロット①[^＞]*＞/
   ];
   
   const plot2Patterns = [
+    /プロット\s*②対象者通話/,
     /プロット\s*②[（(][^）)]*[）)]/,
     /プロット\s*②/,
     /＜プロット②[^＞]*＞/
   ];
   
   const plot3Patterns = [
-    /プロット\s*③[（(][^）)]*[）)]/,
     /プロット\s*③クロージング/,
+    /プロット\s*③[（(][^）)]*[）)]/,
     /プロット\s*③/,
     /＜プロット③[^＞]*＞/
   ];
   
   const plot4Patterns = [
-    /プロット\s*④[（(][^）)]*[）)]/,
     /プロット\s*④情報確認/,
+    /プロット\s*④[（(][^）)]*[）)]/,
     /プロット\s*④/,
     /＜プロット④[^＞]*＞/
   ];
   
   const plot5Patterns = [
-    /プロット\s*⑤[（(][^）)]*[）)]/,
     /プロット\s*⑤ヒアリング/,
+    /プロット\s*⑤[（(][^）)]*[）)]/,
     /プロット\s*⑤/,
     /＜プロット⑤[^＞]*＞/
   ];
   
   const qaPatterns = [
-    /プロット\s*⑥[（(][^）)]*[）)]/,
     /プロット\s*⑥想定Q&A/,
+    /プロット\s*⑥[（(][^）)]*[）)]/,
     /プロット\s*⑥/,
     /(?:6\s*\)\s*)?想定Q&A/,
     /(?:2\s*\)\s*)?想定Q&A/,
@@ -191,6 +192,27 @@ export function extractTitles(messages: MembersMessage[]): { basicInfoTitle: str
   listInfoTitle = listInfoTitle.replace(/<[^>]*>/g, '').trim();
   
   return { basicInfoTitle, listInfoTitle };
+}
+
+export function extractSpreadsheetTitle(messages: MembersMessage[]): string {
+  const basicBody = extractSectionBody(messages, "■基本情報");
+  const listInfo = extractListInfo(messages);
+  
+  // 基本情報から企業名を取得
+  const basicInfoTitle = basicBody.trim().split('\n')[0] || "無題";
+  
+  // 抽出条件を取得（後方互換性も考慮）
+  let extractionCondition = listInfo.extractionCondition || extractSectionBody(messages, "■リスト情報").trim().split('\n')[0] || "default";
+  
+  // HTMLタグ（<br>等）を除去
+  extractionCondition = extractionCondition.replace(/<[^>]*>/g, '').trim();
+  
+  // ファイル名として使用できない文字を除去・置換
+  const cleanBasicInfo = basicInfoTitle.replace(/[<>:"/\\|?*]/g, '').trim();
+  const cleanExtractionCondition = extractionCondition.replace(/[<>:"/\\|?*]/g, '').trim();
+  
+  // 「企業名_抽出条件」の形式でファイル名を生成
+  return `${cleanBasicInfo}様_${cleanExtractionCondition}`;
 }
 
 export interface ListInfo {
