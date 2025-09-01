@@ -80,9 +80,13 @@ export async function GET(request: Request) {
 
         // basicBody と companyNameForSheet を try ブロックの外に移動
         const basicBody = extractSectionBody(reuseMessages ?? [], "■基本情報");
-        const urlBody = extractSectionBody(reuseMessages ?? [], "■企業URL");
+        const urlMatch = basicBody.match(/URL：(.*?)(?:\n|$)商材：/s);
+        const urlBody = urlMatch ? urlMatch[1].trim() : "";
         const productBody = extractSectionBody(reuseMessages ?? [], "■商材情報");
         const closingBody = extractSectionBody(reuseMessages ?? [], "■トーク情報(着地)");
+        // 「着地：」以降の文章を抽出
+        const landingTextMatch = closingBody.match(/着地：(.*)/);
+        const finalClosingBody = landingTextMatch ? landingTextMatch[1].trim() : closingBody;
 
         const companyNameMatch = basicBody.match(/会社名：([^\n]*)/);
         let companyNameForSheet = companyNameMatch ? companyNameMatch[1].trim() : "不明";
@@ -115,7 +119,7 @@ export async function GET(request: Request) {
             { a1: "C1", value: companyNameForSheet },
             { a1: "F3", value: urlBody },
             { a1: "C6", value: productBody },
-            { a1: "C13", value: closingBody },
+            { a1: "C13", value: finalClosingBody },
             { a1: "C15", value: plot1 }, // Plot 1 to C15
             { a1: "C17", value: plot2 }, // Plot 2 to C17
             { a1: "C19", value: plot3 }, // Plot 3 to C19
