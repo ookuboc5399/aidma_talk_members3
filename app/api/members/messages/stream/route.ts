@@ -94,7 +94,7 @@ export async function GET(request: Request) {
         try {
           sendDebug("Starting spreadsheet export for generated script");
           safeSend({ type: "status", phase: "export_start" });
-          const { basicInfoTitle, listInfoTitle } = extractTitles(reuseMessages ?? []);
+          const { listInfoTitle } = extractTitles(reuseMessages ?? []);
           const spreadsheetTitle = extractSpreadsheetTitle(reuseMessages ?? []);
           const { spreadsheetId } = await createSpreadsheetFromTemplate({ templateFileId, title: spreadsheetTitle, firstSheetTitle: listInfoTitle, setEditorPermission: true });
 

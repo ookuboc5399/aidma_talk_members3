@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSpreadsheetFromTemplate, upsertCells, executeGASForFormatting } from "@/lib/googleSheets";
 import { extractTitles, extractSectionBody, splitScriptBySections, extractSpreadsheetTitle } from "@/lib/chatExtract";
-import { generateCompanyInfo, extractCompanyBasicInfo, type CompanyInfo } from "@/lib/companyExtract";
+
 import type { MembersMessage } from "@/lib/membersApi";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     if (!Array.isArray(chatMessages) || chatMessages.length === 0) return NextResponse.json({ ok: false, error: "chatMessages が空" }, { status: 400 });
     if (!generatedScript) return NextResponse.json({ ok: false, error: "generatedScript が空" }, { status: 400 });
 
-    const { basicInfoTitle, listInfoTitle } = extractTitles(chatMessages);
+    const { listInfoTitle } = extractTitles(chatMessages);
     const spreadsheetTitle = extractSpreadsheetTitle(chatMessages);
     
 

@@ -6,19 +6,7 @@ import path from "node:path";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function readPdfTextFromPublic(relativePath?: string): Promise<string> {
-  if (!relativePath) return "";
-  try {
-    const p = path.join(process.cwd(), "public", relativePath.replace(/^\/+/, ""));
-    await fs.access(p);
-    const buf = await fs.readFile(p);
-    const pdf = (await import("pdf-parse")).default as (b: Buffer | Uint8Array) => Promise<{ text: string }>;
-    const out = await pdf(buf);
-    return out.text || "";
-  } catch {
-    return "";
-  }
-}
+
 
 async function readTextFromPublic(relativePath: string): Promise<string> {
   try {
@@ -32,16 +20,7 @@ async function readTextFromPublic(relativePath: string): Promise<string> {
   }
 }
 
-async function readCsvTextsFromPublic(pathsCsv?: string): Promise<{ filename: string; text: string }[]> {
-  if (!pathsCsv) return [];
-  const items: { filename: string; text: string }[] = [];
-  const parts = pathsCsv.split(",").map((s) => s.trim()).filter(Boolean);
-  for (const rel of parts) {
-    const text = await readTextFromPublic(rel);
-    if (text) items.push({ filename: rel, text });
-  }
-  return items;
-}
+
 
 export interface GenerateOptions {
   roomId: number;
@@ -88,8 +67,7 @@ export async function generateSalesScriptFromContext(opts: GenerateOptions): Pro
   const messageCount = targetMessages.length;
 
   // PDFは使用しない
-  const plotsPdf = "";
-  const qaPdf = "";
+  
 
   // 指定されたMarkdownファイルを読み込む
   let talkScriptMd = await readTextFromPublic("tesc_talk_script.md");
