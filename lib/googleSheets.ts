@@ -316,28 +316,30 @@ export async function executeGASForFormatting(spreadsheetId: string, delayMinute
     if (response.data.error) {
       console.error(`[GAS-${executionId}] ❌ GAS returned error:`, response.data.error);
     }
-    
+
   } catch (error) {
     console.error(`[GAS-${executionId}] ❌ GAS execution failed`);
     console.error(`[GAS-${executionId}] 🔍 Error details:`, error);
     console.error(`[GAS-${executionId}] 📄 Spreadsheet ID: ${spreadsheetId}`);
     console.error(`[GAS-${executionId}] ⏰ Error time: ${new Date().toISOString()}`);
     
-    // API無効化エラーの場合は特別なメッセージを表示
-    if (error instanceof Error && error.message.includes('Apps Script API has not been used')) {
-      console.error(`[GAS-${executionId}] 💡 To fix this error, enable Google Apps Script API in Google Cloud Console`);
-      console.error(`[GAS-${executionId}] 🔗 Visit: https://console.developers.google.com/apis/api/script.googleapis.com/overview`);
-      console.error(`[GAS-${executionId}] 🔧 Or set DISABLE_GAS_EXECUTION=true to skip GAS execution`);
-    }
-    
-    // 無効な引数エラーの場合は関数名の問題の可能性
-    if (error instanceof Error && error.message.includes('invalid argument')) {
-      console.error(`[GAS-${executionId}] 💡 This error usually means the function name is incorrect or doesn't exist in the GAS file`);
-      console.error(`[GAS-${executionId}] 🔧 Check if 'formatKeywords' function exists in GAS file: ${gasFileId}`);
-      console.error(`[GAS-${executionId}] 📝 Available functions in GAS file need to be verified`);
-      console.error(`[GAS-${executionId}] 🔗 GAS file URL: https://script.google.com/home/projects/${gasFileId}/edit`);
-      console.error(`[GAS-${executionId}] 💡 Make sure the function accepts spreadsheetId as parameter`);
-      console.error(`[GAS-${executionId}] 🔧 Check if service account has edit permission on the spreadsheet`);
+    if (error instanceof Error) {
+      // API無効化エラーの場合は特別なメッセージを表示
+      if ((error as Error).message.includes('Apps Script API has not been used')) {
+        console.error(`[GAS-${executionId}] 💡 To fix this error, enable Google Apps Script API in Google Cloud Console`);
+        console.error(`[GAS-${executionId}] 🔗 Visit: https://console.developers.google.com/apis/api/script.googleapis.com/overview`);
+        console.error(`[GAS-${executionId}] 🔧 Or set DISABLE_GAS_EXECUTION=true to skip GAS execution`);
+      }
+      
+      // 無効な引数エラーの場合は関数名の問題の可能性
+      if ((error as Error).message.includes('invalid argument')) {
+        console.error(`[GAS-${executionId}] 💡 This error usually means the function name is incorrect or doesn't exist in the GAS file`);
+        console.error(`[GAS-${executionId}] 🔧 Check if 'formatKeywords' function exists in GAS file: ${gasFileId}`);
+        console.error(`[GAS-${executionId}] 📝 Available functions in GAS file need to be verified`);
+        console.error(`[GAS-${executionId}] 🔗 GAS file URL: https://script.google.com/home/projects/${gasFileId}/edit`);
+        console.error(`[GAS-${executionId}] 💡 Make sure the function accepts spreadsheetId as parameter`);
+        console.error(`[GAS-${executionId}] 🔧 Check if service account has edit permission on the spreadsheet`);
+      }
     }
     
     // GASの実行失敗はスプレッドシート作成の失敗とはしない

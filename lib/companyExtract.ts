@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { MembersMessage } from "@/lib/membersApi";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -93,7 +94,7 @@ function parseCompanyInfo(content: string): CompanyInfo {
   };
 }
 
-export function extractCompanyBasicInfo(messages: any[]): { companyName: string; companyUrl: string } {
+export function extractCompanyBasicInfo(messages: MembersMessage[]): { companyName: string; companyUrl: string } {
   let companyName = "";
   let companyUrl = "";
 

@@ -248,7 +248,7 @@ export interface ListInfo {
   extractionCondition: string; // 抽出条件
 }
 
-export function extractListInfo(messages: any[]): ListInfo {
+export function extractListInfo(messages: MembersMessage[]): ListInfo {
   let callDepartment = "";
   let area = "";
   let extractionCondition = "";
@@ -279,7 +279,7 @@ export function extractListInfo(messages: any[]): ListInfo {
       // エリアを抽出
       const areaMatch = listContent.match(/エリア：\s*([^\n]*)/);
       if (areaMatch) {
-        let tempArea = areaMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+        const tempArea = areaMatch[1].trim().replace(/<[^>]*>/g, '').trim();
         // 抽出条件： の手前までをエリアとする
         const extractionConditionIndex = tempArea.indexOf('抽出条件：');
         if (extractionConditionIndex !== -1) {
