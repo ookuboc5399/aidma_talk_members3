@@ -197,22 +197,49 @@ export function extractTitles(messages: MembersMessage[]): { basicInfoTitle: str
 export function extractSpreadsheetTitle(messages: MembersMessage[]): string {
   const basicBody = extractSectionBody(messages, "■基本情報");
   const listInfo = extractListInfo(messages);
-  
-  // 基本情報から企業名を取得
-  const basicInfoTitle = basicBody.trim().split('\n')[0] || "無題";
-  
-  // 抽出条件を取得（後方互換性も考慮）
-  let extractionCondition = listInfo.extractionCondition || extractSectionBody(messages, "■リスト情報").trim().split('\n')[0] || "default";
-  
-  // HTMLタグ（<br>等）を除去
-  extractionCondition = extractionCondition.replace(/<[^>]*>/g, '').trim();
-  
-  // ファイル名として使用できない文字を除去・置換
-  const cleanBasicInfo = basicInfoTitle.replace(/[<>:"/\\|?*]/g, '').trim();
+
+  // 1. 日付の取得とフォーマット (yymmdd)
+  let dateStr = "";
+  if (messages.length > 0) {
+    // この関数はメッセージ全体を受け取るので、最新のメッセージの日付を代表として使う
+    const latestMessage = messages[messages.length - 1];
+    if (latestMessage && latestMessage.send_time) {
+      const date = new Date(latestMessage.send_time * 1000);
+      const y = String(date.getFullYear()).slice(-2);
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      dateStr = `${y}${m}${d}`;
+    }
+  }
+
+  // 2. 会社名の取得
+  const companyNameMatch = basicBody.match(/会社名：([^\n]*)/);
+  let companyName = companyNameMatch ? companyNameMatch[1].trim() : "";
+  if (!companyName) {
+    // フォールバックとして、基本情報セクションの最初の行を使う
+    companyName = basicBody.trim().split('\n')[0] || "無題";
+  }
+
+  // 3. 抽出条件の取得
+  const extractionCondition = listInfo.extractionCondition || "";
+
+  // 4. エリアの取得
+  const area = listInfo.area || "";
+
+  // 各パーツをファイル名として使えるようにサニタイズ
+  const cleanDate = dateStr.replace(/[<>:"/\\|?*]/g, '').trim();
+  const cleanCompanyName = companyName.replace(/[<>:"/\\|?*]/g, '').trim();
   const cleanExtractionCondition = extractionCondition.replace(/[<>:"/\\|?*]/g, '').trim();
+  const cleanArea = area.replace(/[<>:"/\\|?*]/g, '').trim();
+
+  // ファイル名を結合 (日付がない場合は先頭にアンダースコアがつかないようにする)
+  const titleParts = [];
+  if (cleanDate) titleParts.push(cleanDate);
+  titleParts.push(`${cleanCompanyName}様`);
+  if (cleanExtractionCondition) titleParts.push(cleanExtractionCondition);
+  if (cleanArea) titleParts.push(cleanArea);
   
-  // 「企業名_抽出条件」の形式でファイル名を生成
-  return `${cleanBasicInfo}様_${cleanExtractionCondition}`;
+  return titleParts.join('_');
 }
 
 export interface ListInfo {
@@ -252,13 +279,33 @@ export function extractListInfo(messages: any[]): ListInfo {
       // エリアを抽出
       const areaMatch = listContent.match(/エリア：\s*([^\n]*)/);
       if (areaMatch) {
-        area = areaMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+        let tempArea = areaMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+        // 抽出条件： の手前までをエリアとする
+        const extractionConditionIndex = tempArea.indexOf('抽出条件：');
+        if (extractionConditionIndex !== -1) {
+          area = tempArea.substring(0, extractionConditionIndex).trim();
+        } else {
+          area = tempArea;
+        }
       }
       
       // 抽出条件を抽出
       const extractionMatch = listContent.match(/抽出条件：\s*([^\n]*)/);
       if (extractionMatch) {
         extractionCondition = extractionMatch[1].trim().replace(/<[^>]*>/g, '').trim();
+        // ここから追加
+        if (extractionCondition) {
+          const areaIndex = extractionCondition.indexOf('エリア：');
+          if (areaIndex !== -1) {
+            extractionCondition = extractionCondition.substring(0, areaIndex).trim();
+          } else {
+            const colonIndex = extractionCondition.indexOf('：');
+            if (colonIndex !== -1) {
+              extractionCondition = extractionCondition.substring(0, colonIndex).trim();
+            }
+          }
+        }
+        // ここまで追加
       }
       
       // 見つかった場合はループを抜ける
@@ -279,6 +326,10 @@ export function extractListInfo(messages: any[]): ListInfo {
       }
     }
   }
+
+  console.log(`[EXTRACT-DEBUG] callDepartment: "${callDepartment}"`);
+  console.log(`[EXTRACT-DEBUG] area: "${area}"`);
+  console.log(`[EXTRACT-DEBUG] extractionCondition: "${extractionCondition}"`);
 
   return {
     callDepartment,

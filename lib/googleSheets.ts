@@ -147,8 +147,9 @@ export async function createSpreadsheetFromTemplate(params: { templateFileId: st
 export async function registerSpreadsheetResult(params: {
   companyName: string;
   spreadsheetUrl: string;
+  spreadsheetTitle: string; // ★ 追加
   resultSheetId: string;
-  sendTime?: string; // チャットメッセージのsend_time
+  sendTime?: number; // チャットメッセージのsend_time (Unix timestamp in seconds)
 }): Promise<void> {
   const authClient = await getAuth().getClient() as Auth.OAuth2Client;
   const sheets = google.sheets({ version: "v4", auth: authClient }) as sheets_v4.Sheets;
@@ -157,6 +158,7 @@ export async function registerSpreadsheetResult(params: {
   console.log(`[RESULT-REGISTER] 📄 Result sheet ID: ${params.resultSheetId}`);
   console.log(`[RESULT-REGISTER] 🏢 Company: ${params.companyName}`);
   console.log(`[RESULT-REGISTER] 🔗 Spreadsheet URL: ${params.spreadsheetUrl}`);
+  console.log(`[RESULT-REGISTER] 📝 Spreadsheet Title: ${params.spreadsheetTitle}`); // ★ 追加
 
   try {
     // 現在のデータを取得して次の行番号を決定
@@ -169,39 +171,27 @@ export async function registerSpreadsheetResult(params: {
     const nextRow = values.length + 1;
 
     // 時刻をわかりやすい形式に変換
-    const formatDateTime = (isoString: string) => {
+    const formatDateTime = (unixTimestampSeconds: number) => {
       try {
-        const date = new Date(isoString);
+        const date = new Date(unixTimestampSeconds * 1000); // ミリ秒に変換
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const day = String(date.getDate()).padStart(2, '0');
         const hours = String(date.getHours()).padStart(2, '0');
         const minutes = String(date.getMinutes()).padStart(2, '0');
-        return `${year}/${month}/${day} ${hours}:${minutes}`;
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
       } catch (error) {
-        console.error(`[RESULT-REGISTER] ❌ Failed to format date: ${isoString}`, error);
-        return isoString; // フォーマット失敗時は元の文字列を返す
-      }
-    };
-
-    // スプレッドシートURLからファイル名を抽出
-    const extractFileName = (url: string) => {
-      try {
-        const urlObj = new URL(url);
-        const pathParts = urlObj.pathname.split('/');
-        const fileId = pathParts[pathParts.length - 2]; // /d/{fileId}/edit の形式
-        return `スプレッドシート_${fileId.substring(0, 8)}...`; // 最初の8文字を表示
-      } catch (error) {
-        console.error(`[RESULT-REGISTER] ❌ Failed to extract filename from URL: ${url}`, error);
-        return 'ファイル名取得エラー';
+        console.error(`[RESULT-REGISTER] ❌ Failed to format date: ${unixTimestampSeconds}`, error);
+        return "日付フォーマットエラー";
       }
     };
 
     // 新しい行のデータを準備
     const newRow = [
-      formatDateTime(params.sendTime || new Date().toISOString()), // A列: フォーマット済み時刻
+      formatDateTime(params.sendTime || new Date().getTime() / 1000), // A列: フォーマット済み時刻
       params.companyName,       // B列: 企業名
-      extractFileName(params.spreadsheetUrl), // C列: スプレッドシートファイル名
+      params.spreadsheetTitle,  // C列: スプレッドシートファイル名 ★ 修正
       params.spreadsheetUrl,    // D列: スプレッドシートURL
     ];
 

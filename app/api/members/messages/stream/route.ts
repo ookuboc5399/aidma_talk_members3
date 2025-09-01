@@ -77,7 +77,20 @@ export async function GET(request: Request) {
           sendDebug("Export skipped: SHEETS_TEMPLATE_FILE_ID not configured");
           return;
         }
-        
+
+        // basicBody と companyNameForSheet を try ブロックの外に移動
+        const basicBody = extractSectionBody(reuseMessages ?? [], "■基本情報");
+        const urlBody = extractSectionBody(reuseMessages ?? [], "■企業URL");
+        const productBody = extractSectionBody(reuseMessages ?? [], "■商材情報");
+        const closingBody = extractSectionBody(reuseMessages ?? [], "■トーク情報(着地)");
+
+        const companyNameMatch = basicBody.match(/会社名：([^\n]*)/);
+        let companyNameForSheet = companyNameMatch ? companyNameMatch[1].trim() : "不明";
+        if (companyNameForSheet.endsWith("様")) {
+          companyNameForSheet = companyNameForSheet.slice(0, -1);
+        }
+        sendDebug(`companyNameForSheet: ${companyNameForSheet}`); // ★ 追加
+
         try {
           sendDebug("Starting spreadsheet export for generated script");
           safeSend({ type: "status", phase: "export_start" });
@@ -85,11 +98,6 @@ export async function GET(request: Request) {
           const spreadsheetTitle = extractSpreadsheetTitle(reuseMessages ?? []);
           const { spreadsheetId } = await createSpreadsheetFromTemplate({ templateFileId, title: spreadsheetTitle, firstSheetTitle: listInfoTitle, setEditorPermission: true });
 
-          const basicBody = extractSectionBody(reuseMessages ?? [], "■基本情報");
-          const urlBody = extractSectionBody(reuseMessages ?? [], "■企業URL");
-          const productBody = extractSectionBody(reuseMessages ?? [], "■商材情報");
-          const closingBody = extractSectionBody(reuseMessages ?? [], "■トーク情報(着地)");
-          
           // Split the generated script into sections (only if script was generated)
           let plot1 = "", plot2 = "", plot3 = "", plot4 = "", plot5 = "", qa = "";
           if (generatedScript && generatedScript.trim()) {
@@ -104,7 +112,7 @@ export async function GET(request: Request) {
 
           // Prepare cell values array
           const cellValues = [
-            { a1: "C1", value: basicBody },
+            { a1: "C1", value: companyNameForSheet },
             { a1: "F3", value: urlBody },
             { a1: "C6", value: productBody },
             { a1: "C13", value: closingBody },
@@ -113,7 +121,7 @@ export async function GET(request: Request) {
             { a1: "C19", value: plot3 }, // Plot 3 to C19
             { a1: "C21", value: plot4 }, // Plot 4 to C21
             { a1: "C23", value: plot5 }, // Plot 5 to C23
-            { a1: "F17", value: qa },    // Q&A to F17 (プロット⑥)
+            { a1: "F17", value: qa }    // Q&A to F17 (プロット⑥)
           ];
 
           // Add company info if available
@@ -145,28 +153,28 @@ export async function GET(request: Request) {
           
           // 結果を登録
           try {
-            const companyName = basicBody || "不明";
             const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
             const resultSheetId = process.env.RESULT_SHEET_ID || "1wqxo6ATm1rsKefu9C-dhLNFe8yRhuBeTMvojta_bRpE";
             
             // トリガーとなったメッセージのsend_timeを取得
-            let sendTime: string | undefined;
+            let sendTime: number | undefined;
             if (triggeredByMessageId && reuseMessages) {
               const triggerMessage = reuseMessages.find(msg => msg.message_id === triggeredByMessageId);
               if (triggerMessage && triggerMessage.send_time) {
-                sendTime = triggerMessage.send_time.toString();
+                sendTime = triggerMessage.send_time;
                 sendDebug(`Using send_time from trigger message: ${sendTime}`);
               }
             }
             
             await registerSpreadsheetResult({
-              companyName,
+              companyName: companyNameForSheet,
               spreadsheetUrl,
+              spreadsheetTitle, // ファイル名を渡す
               resultSheetId,
               sendTime,
             });
             
-            sendDebug(`Result registered successfully for company: ${companyName}`);
+            sendDebug(`Result registered successfully for company: ${companyNameForSheet}`);
           } catch (error) {
             console.error("Result registration failed:", error);
             sendDebug("Result registration failed, but spreadsheet creation is complete");

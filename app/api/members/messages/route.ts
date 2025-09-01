@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const force: ForceOption = searchParams.get("force") === "1" ? 1 : 0;
   try {
     const token = process.env.MEMBERS_token ?? process.env.MEMBERS_TOKEN;
-    const messages = await getRoomMessages(199987, { force, token });
+    const messages = await getRoomMessages(196320, { force, token });
     return NextResponse.json(messages);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
