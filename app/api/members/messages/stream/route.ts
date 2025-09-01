@@ -23,7 +23,7 @@ function toSseData(data: unknown): string {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const intervalMs = Math.max(1000, Number(searchParams.get("intervalMs")) || 10000);
-  const roomId = Number(searchParams.get("roomId")) || 196320;
+  const roomId = Number(searchParams.get("roomId")) || 199987;
   let lastSeenId = searchParams.get("lastId") ? Number(searchParams.get("lastId")) : 0;
   const useReasoning = searchParams.get("useReasoning") === "1";
   const generateOnConnect = searchParams.get("generateOnConnect") === "1";

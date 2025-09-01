@@ -17,7 +17,7 @@ interface StatusEvent {
   content?: string;
 }
 
-export default function SseLogViewer({ defaultRoomId = 196320, defaultIntervalMs = 10000 }) {
+export default function SseLogViewer({ defaultRoomId = 199987, defaultIntervalMs = 10000 }) {
   const [roomId, setRoomId] = useState<number>(defaultRoomId);
   const [intervalMs, setIntervalMs] = useState<number>(defaultIntervalMs);
   const [connected, setConnected] = useState(false);
